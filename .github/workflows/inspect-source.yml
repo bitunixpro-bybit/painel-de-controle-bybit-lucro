@@ -1,0 +1,28 @@
+name: Inspect wallet source
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/inspect-source.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract application source
+        run: |
+          unzip -q cryptowallet-render-source.zip
+          find cryptowallet-render -type f -not -path '*/node_modules/*' | sort > source-files.txt
+          cat source-files.txt
+          tar -czf wallet-source-inspection.tar.gz cryptowallet-render
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wallet-source-inspection
+          path: |
+            source-files.txt
+            wallet-source-inspection.tar.gz
+          retention-days: 2

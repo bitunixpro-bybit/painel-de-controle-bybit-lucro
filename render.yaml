@@ -4,7 +4,14 @@ services:
     runtime: node
     plan: free
     region: frankfurt
-    buildCommand: unzip -q cryptowallet-render-source.zip && cp -R cryptowallet-render/. . && rm -rf cryptowallet-render cryptowallet-render-source.zip && npm install && npm run db:migrate && npm run build
+    buildCommand: >-
+      unzip -q cryptowallet-render-source.zip &&
+      sed -i 's/type User={id:string;full_name:string;username:string;email:string;status:string;available:string;in_use:string};type Stats=/type User={id:string;full_name:string;username:string;email:string;status:string;available:string;in_use:string;created_at:string};type Stats=/' cryptowallet-render/app/admin/page.tsx &&
+      cp -R cryptowallet-render/. . &&
+      rm -rf cryptowallet-render cryptowallet-render-source.zip &&
+      npm install &&
+      npm run db:migrate &&
+      npm run build
     startCommand: npm run db:seed && npm start
     healthCheckPath: /api/health
     envVars:
@@ -19,7 +26,7 @@ services:
       - key: SANDBOX_MODE
         value: "true"
       - key: INITIAL_ADMIN_USERNAME
-        value: admin
+        value: "@admin"
       - key: INITIAL_ADMIN_PASSWORD
         generateValue: true
 

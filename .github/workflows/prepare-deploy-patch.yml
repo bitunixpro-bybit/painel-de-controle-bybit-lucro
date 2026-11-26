@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - "patch-admin-append.cjs.gz.b64"
+      - "patch-trigger.txt"
 permissions:
   contents: write
 jobs:

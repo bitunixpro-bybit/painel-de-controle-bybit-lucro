@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
-actions: read
+  actions: read
 jobs:
   inspect:
     runs-on: ubuntu-latest

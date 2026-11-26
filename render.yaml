@@ -6,9 +6,11 @@ services:
     region: frankfurt
     buildCommand: >-
       unzip -q cryptowallet-render-source.zip &&
+      base64 -d apply-updates.cjs.gz.b64 | gunzip > apply-updates.cjs &&
+      node apply-updates.cjs &&
       sed -i 's/type User={id:string;full_name:string;username:string;email:string;status:string;available:string;in_use:string};type Stats=/type User={id:string;full_name:string;username:string;email:string;status:string;available:string;in_use:string;created_at:string};type Stats=/' cryptowallet-render/app/admin/page.tsx &&
       cp -R cryptowallet-render/. . &&
-      rm -rf cryptowallet-render cryptowallet-render-source.zip &&
+      rm -rf cryptowallet-render cryptowallet-render-source.zip apply-updates.cjs apply-updates.cjs.gz.b64 &&
       npm install &&
       npm run db:migrate &&
       npm run build

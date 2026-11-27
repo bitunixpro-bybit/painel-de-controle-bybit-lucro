@@ -1,0 +1,44 @@
+name: Repair wallet build patch
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/repair-build-patch.yml"
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Remove duplicate helper declaration from generated patch
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const zlib = require('node:zlib');
+          const file = 'apply-updates.cjs.gz.b64';
+          const source = zlib.gunzipSync(Buffer.from(fs.readFileSync(file, 'utf8').trim(), 'base64')).toString('utf8');
+          const lines = source.split(/\r?\n/);
+          let seen = 0;
+          const fixed = lines.filter(line => {
+            if (/^\s*const edit\s*=/.test(line)) {
+              seen += 1;
+              return seen === 1;
+            }
+            return true;
+          }).join('\n') + '\n';
+          if (seen < 2) throw new Error('Expected duplicate const edit helper; found ' + seen);
+          new Function(fixed);
+          fs.writeFileSync(file, zlib.gzipSync(Buffer.from(fixed)).toString('base64') + '\n');
+          console.log('Removed ' + (seen - 1) + ' duplicate helper declaration(s).');
+          NODE
+      - name: Commit repaired build patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apply-updates.cjs.gz.b64
+          git commit -m "Fix duplicate declaration in wallet build patch" || exit 0
+          git push

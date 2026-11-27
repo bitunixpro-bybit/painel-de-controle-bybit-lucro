@@ -1,4 +1,4 @@
-name: Repair wallet build patch
+name: Diagnose wallet build patch
 on:
   push:
     branches: [main]
@@ -8,30 +8,29 @@ on:
 permissions:
   contents: write
 jobs:
-  repair:
+  diagnose:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          persist-credentials: true
-      - name: Replace duplicate lexical helper declarations
+      - name: Inspect duplicate declarations
         run: |
           node <<'NODE'
-          const fs = require('node:fs');
-          const zlib = require('node:zlib');
-          const file = 'apply-updates.cjs.gz.b64';
-          const source = zlib.gunzipSync(Buffer.from(fs.readFileSync(file, 'utf8').trim(), 'base64')).toString('utf8');
-          const matches = source.match(/\bconst\s+edit\s*=/g) || [];
-          console.log('Found const edit declarations:', matches.length);
-          const fixed = source.replace(/\bconst\s+edit\s*=/g, 'var edit=');
-          if (fixed === source) throw new Error('No const edit helper declaration found.');
-          fs.writeFileSync(file, zlib.gzipSync(Buffer.from(fixed)).toString('base64') + '\n');
-          console.log('Converted ' + matches.length + ' declaration(s) to redeclarable var.');
+          const fs=require('node:fs'), zlib=require('node:zlib');
+          const file='apply-updates.cjs.gz.b64';
+          const src=zlib.gunzipSync(Buffer.from(fs.readFileSync(file,'utf8').trim(),'base64')).toString('utf8');
+          const lines=src.split(/\r?\n/);
+          const hits=[];
+          lines.forEach((line,i)=>{if(/\bedit\b/.test(line)) hits.push(String(i+1)+': '+line)});
+          const declarations=[...src.matchAll(/\b(const|let|var)\s+edit\s*=/g)].map(m=>({kind:m[1],offset:m.index,context:src.slice(Math.max(0,m.index-100),Math.min(src.length,m.index+180))}));
+          const diag={lineCount:lines.length,declarations,editLines:hits,syntaxCheck:null};
+          try{new Function(src);diag.syntaxCheck='ok'}catch(e){diag.syntaxCheck=String(e)}
+          fs.writeFileSync('patch-diagnostics.json',JSON.stringify(diag,null,2));
+          console.log(JSON.stringify(diag,null,2));
           NODE
-      - name: Commit repaired build patch
+      - name: Commit diagnostics
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apply-updates.cjs.gz.b64
-          git commit -m "Fix duplicate declaration in wallet build patch"
+          git add patch-diagnostics.json
+          git commit -m "Add build patch diagnostics"
           git push

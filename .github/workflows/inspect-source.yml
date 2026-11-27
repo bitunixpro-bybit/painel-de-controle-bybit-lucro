@@ -1,4 +1,4 @@
-name: Inspect wallet source
+name: Inspect wallet source and PIX implementation
 on:
   push:
     branches: [main]

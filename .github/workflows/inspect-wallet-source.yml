@@ -14,7 +14,8 @@ jobs:
       - name: Extract application source
         run: |
           unzip -q cryptowallet-render-source.zip
-          for f in cryptowallet-render/app/globals.css cryptowallet-render/app/dashboard/page.tsx cryptowallet-render/app/admin/page.tsx cryptowallet-render/app/api/deposits/route.ts cryptowallet-render/app/api/wallet/route.ts cryptowallet-render/app/api/admin/adjustments/route.ts cryptowallet-render/app/api/admin/users/route.ts cryptowallet-render/app/api/admin/deposits/route.ts; do
+          base64 -d apply-updates.cjs.gz.b64 | gunzip > /tmp/apply-updates.cjs
+          for f in /tmp/apply-updates.cjs cryptowallet-render/app/admin/page.tsx cryptowallet-render/app/dashboard/page.tsx cryptowallet-render/app/api/admin/settings/route.ts cryptowallet-render/app/api/admin/adjustments/route.ts cryptowallet-render/app/api/deposits/route.ts cryptowallet-render/app/api/wallet/route.ts cryptowallet-render/db/migrations/001_init.sql cryptowallet-render/db/seed.ts cryptowallet-render/app/api/admin/deposits/route.ts; do
             echo "===== $f ====="
-            sed -n '1,260p' "$f"
+            sed -n '1,400p' "$f"
           done

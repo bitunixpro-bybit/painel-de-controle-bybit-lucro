@@ -1,0 +1,23 @@
+name: Inspect wallet withdrawal source
+on:
+  push:
+    paths:
+      - ".github/workflows/inspect-withdrawal-source.yml"
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect source files
+        shell: bash
+        run: |
+          set -euo pipefail
+          unzip -q cryptowallet-render-source.zip
+          for f in app/dashboard/page.tsx app/api/withdrawals/route.ts app/api/withdraw/route.ts app/admin/page.tsx app/api/admin/adjustments/route.ts; do
+            if [ -f "cryptowallet-render/$f" ]; then
+              echo "===== $f ====="
+              sed -n '1,260p' "cryptowallet-render/$f"
+            fi
+          done

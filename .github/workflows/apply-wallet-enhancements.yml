@@ -88,7 +88,6 @@ jobs:
           console.log('Applied mobile-width wallet, per-user deposit details and exact-balance admin controls.');
           PATCH
           cat /tmp/extra.cjs >> /tmp/apply-updates.cjs
-          gzip -n -9 -c /tmp/apply-updates.cjs | base64 -w0 > apply-updates.cjs.gz.b64
 
           cat >> /tmp/apply-updates.cjs <<'PATCH'
           put('db/migrations/004_withdrawal_pix_and_fee_copy.sql', String.raw`ALTER TABLE withdrawal_settings ADD COLUMN IF NOT EXISTS fee_label TEXT NOT NULL DEFAULT 'Taxa de saque';
@@ -126,6 +125,7 @@ jobs:
           fs.writeFileSync(path.join(root,'app/admin/page.tsx'),admin2);
           console.log('Added Portuguese multi-step PIX/USDT withdrawal flow and admin-controlled fee copy.');
           PATCH
+          gzip -n -9 -c /tmp/apply-updates.cjs | base64 -w0 > apply-updates.cjs.gz.b64
           unzip -q cryptowallet-render-source.zip
           node /tmp/apply-updates.cjs
           cp -R cryptowallet-render/. .

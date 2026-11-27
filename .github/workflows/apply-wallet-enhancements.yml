@@ -125,6 +125,10 @@ jobs:
           console.log('Added Portuguese multi-step PIX/USDT withdrawal flow and admin-controlled fee copy.');
           PATCH
           unzip -q cryptowallet-render-source.zip
+          echo '--- dashboard modal source markers ---'
+          grep -n -o '.\{0,100\}modal.\{0,180\}' cryptowallet-render/app/dashboard/page.tsx | head -20 || true
+          echo '--- dashboard file path candidates ---'
+          find . -path '*/app/dashboard/page.tsx' -print
           node /tmp/apply-updates.cjs
           cp -R cryptowallet-render/. .
           npm install --no-audit --no-fund

@@ -73,11 +73,12 @@ jobs:
 
           let adj=fs.readFileSync(path.join(root,'app/api/admin/adjustments/route.ts'),'utf8');
           adj=adj.replace("z.enum(['credit','debit'])","z.enum(['credit','debit','set'])");
-          adj=adj.replace("if(!amount.isPositive()||amount.gt(10000000))throw new Error('Invalid amount');if(b.direction==='debit'&&before.lt(amount))throw new Error('Insufficient balance for debit');const delta=b.direction==='credit'?amount:amount.negated();const after=before.plus(delta);","if(!amount.isPositive()||amount.gt('9999999999999999999999'))throw new Error('Invalid amount');if(b.direction==='debit'&&before.lt(amount))throw new Error('Insufficient balance for debit');const delta=b.direction==='set'?amount.minus(before):(b.direction==='credit'?amount:amount.negated());const after=b.direction==='set'?amount:before.plus(delta);if(delta.isZero())throw new Error('The requested balance is already set');");
+          adj=adj.replace("if(!amount.isPositive()||amount.gt(10000000))throw new Error('Invalid amount');if(b.direction==='debit'&&before.lt(amount))throw new Error('Insufficient balance for debit');const delta=b.direction==='credit'?amount:amount.negated();const after=before.plus(delta);","if((b.direction!=='set'&&!amount.isPositive())||amount.lt(0)||amount.gt('9999999999999999999999'))throw new Error('Invalid amount');if(b.direction==='debit'&&before.lt(amount))throw new Error('Insufficient balance for debit');const delta=b.direction==='set'?amount.minus(before):(b.direction==='credit'?amount:amount.negated());const after=b.direction==='set'?amount:before.plus(delta);if(delta.isZero())throw new Error('The requested balance is already set');");
           adj=adj.replace("b.direction==='credit'?'admin_credit':'admin_debit'","delta.isPositive()?'admin_credit':'admin_debit'");
           adj=adj.replace("amount.toFixed(8),ref,b.reason","delta.abs().toFixed(8),ref,b.reason");
           fs.writeFileSync(path.join(root,'app/api/admin/adjustments/route.ts'),adj);
           let admin=fs.readFileSync(path.join(root,'app/admin/page.tsx'),'utf8');
+          admin=admin.replace('in_use:string};type Stats','in_use:string;created_at:string};type Stats');
           admin=admin.replace('<option value="debit">Debit</option>','<option value="debit">Debit</option><option value="set">Definir saldo exato</option>');
           admin=admin.replace('</header><div className="wrap py-8','<a href="/admin/deposit-details" className="text-xs text-amber-400 border border-amber-500/30 rounded-lg px-3 py-2">Detalhes de depósito por usuário</a></header><div className="wrap py-8');
           fs.writeFileSync(path.join(root,'app/admin/page.tsx'),admin);

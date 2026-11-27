@@ -1,0 +1,92 @@
+name: Apply wallet enhancements
+on:
+  push:
+    paths:
+      - ".github/workflows/apply-wallet-enhancements.yml"
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extend build-time application patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 -d apply-updates.cjs.gz.b64 | gunzip > /tmp/apply-updates.cjs
+          cat > /tmp/extra.cjs <<'PATCH'
+          const depositMigration = String.raw`CREATE TABLE IF NOT EXISTS user_deposit_details (
+            user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            network TEXT NOT NULL CHECK (network IN ('TRC20','ERC20')),
+            deposit_address TEXT NOT NULL,
+            payment_instructions TEXT NOT NULL DEFAULT '',
+            active BOOLEAN NOT NULL DEFAULT true,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+          );
+          CREATE INDEX IF NOT EXISTS user_deposit_details_active_idx ON user_deposit_details(active);`;
+          put('db/migrations/003_user_deposit_details.sql', depositMigration + '\n');
+
+          put('app/api/admin/deposit-details/route.ts', String.raw`import {NextRequest,NextResponse} from 'next/server';
+          import {z} from 'zod';
+          import {db} from '@/lib/db';
+          import {requireAdmin} from '@/lib/auth';
+          const schema=z.object({userId:z.string().uuid(),network:z.enum(['TRC20','ERC20']),depositAddress:z.string().trim().min(10).max(300),paymentInstructions:z.string().max(2000).default(''),active:z.boolean().default(true)});
+          export async function GET(){try{await requireAdmin();const r=await db.query(`SELECT u.id,u.full_name,u.username,u.email,d.network,d.deposit_address,d.payment_instructions,d.active,d.updated_at FROM users u LEFT JOIN user_deposit_details d ON d.user_id=u.id ORDER BY u.created_at DESC LIMIT 500`);return NextResponse.json({users:r.rows})}catch{return NextResponse.json({error:'Unauthorized'},{status:401})}}
+          export async function PUT(req:NextRequest){try{const a=await requireAdmin();const b=schema.parse(await req.json());const old=await db.query('SELECT network,deposit_address,payment_instructions,active FROM user_deposit_details WHERE user_id=$1',[b.userId]);const r=await db.query(`INSERT INTO user_deposit_details(user_id,network,deposit_address,payment_instructions,active,updated_at) VALUES($1,$2,$3,$4,$5,now()) ON CONFLICT(user_id) DO UPDATE SET network=EXCLUDED.network,deposit_address=EXCLUDED.deposit_address,payment_instructions=EXCLUDED.payment_instructions,active=EXCLUDED.active,updated_at=now() RETURNING user_id`,[b.userId,b.network,b.depositAddress,b.paymentInstructions,b.active]);await db.query(`INSERT INTO admin_audit_logs(admin_id,action,target_type,target_id,reason,before_data,after_data) VALUES($1,'user_deposit_details_updated','user',$2,'Per-user deposit instructions updated',$3,$4)`,[a.id,b.userId,JSON.stringify(old.rows[0]??null),JSON.stringify({network:b.network,deposit_address:b.depositAddress,payment_instructions:b.paymentInstructions,active:b.active})]);return NextResponse.json({ok:true,userId:r.rows[0].user_id})}catch(e){return NextResponse.json({error:e instanceof Error?e.message:'Unable to save deposit details'},{status:400})}}`);
+          
+          put('app/api/deposit-details/route.ts', String.raw`import {NextResponse} from 'next/server';
+          import {db} from '@/lib/db';
+          import {requireUser} from '@/lib/auth';
+          export async function GET(){try{const s=await requireUser();const r=await db.query('SELECT network,deposit_address,payment_instructions FROM user_deposit_details WHERE user_id=$1 AND active=true',[s.id]);return NextResponse.json({depositDetails:r.rows[0]??null})}catch{return NextResponse.json({error:'Unauthorized'},{status:401})}}`);
+          
+          put('app/admin/deposit-details/page.tsx', String.raw`'use client';
+          import {useEffect,useState} from 'react';
+          import Link from 'next/link';
+          type User={id:string;full_name:string;username:string;email:string;network:string|null;deposit_address:string|null;payment_instructions:string|null;active:boolean|null};
+          export default function DepositDetailsAdmin(){const [users,setUsers]=useState<User[]>([]),[userId,setUserId]=useState(''),[network,setNetwork]=useState('TRC20'),[address,setAddress]=useState(''),[instructions,setInstructions]=useState(''),[active,setActive]=useState(true),[message,setMessage]=useState(''),[busy,setBusy]=useState(false);
+          async function load(){const r=await fetch('/api/admin/deposit-details');if(r.status===401){setMessage('Faça login no painel administrativo.');return}const j=await r.json();setUsers(j.users??[])}
+          useEffect(()=>{load()},[]);
+          function choose(id:string){setUserId(id);const u=users.find(x=>x.id===id);setNetwork(u?.network||'TRC20');setAddress(u?.deposit_address||'');setInstructions(u?.payment_instructions||'');setActive(u?.active??true);setMessage('')}
+          async function save(e:React.FormEvent){e.preventDefault();setBusy(true);setMessage('');const r=await fetch('/api/admin/deposit-details',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({userId,network,depositAddress:address,paymentInstructions:instructions,active})});const j=await r.json();setBusy(false);if(!r.ok){setMessage(j.error||'Não foi possível salvar.');return}setMessage('Detalhes de depósito salvos e registrados na auditoria.');await load()}
+          return <main className="min-h-screen bg-black text-white p-4 sm:p-6"><div className="max-w-xl mx-auto space-y-5"><Link href="/admin" className="text-amber-400 text-sm">← Voltar ao painel</Link><h1 className="text-2xl font-semibold">Detalhes de depósito por usuário</h1><p className="text-sm text-zinc-400">Configure o endereço e as instruções individualmente. Cada usuário verá somente os dados atribuídos à própria conta.</p><form onSubmit={save} className="panel p-5 space-y-4"><label className="block text-sm text-zinc-300">Usuário<select className="field mt-2" value={userId} onChange={e=>choose(e.target.value)} required><option value="">Selecione um usuário</option>{users.map(u=><option key={u.id} value={u.id}>{u.username} — {u.email}</option>)}</select></label><label className="block text-sm text-zinc-300">Rede<select className="field mt-2" value={network} onChange={e=>setNetwork(e.target.value)}><option value="TRC20">USDT TRC20</option><option value="ERC20">USDT ERC20</option></select></label><label className="block text-sm text-zinc-300">Endereço de depósito<input className="field mt-2" value={address} onChange={e=>setAddress(e.target.value)} minLength={10} maxLength={300} required placeholder="Informe o endereço correto"/></label><label className="block text-sm text-zinc-300">Instruções para o usuário<textarea className="field mt-2" rows={4} value={instructions} onChange={e=>setInstructions(e.target.value)} placeholder="Instruções específicas para este usuário"/></label><label className="flex items-center gap-2 text-sm text-zinc-300"><input type="checkbox" checked={active} onChange={e=>setActive(e.target.checked)}/> Ativar estes dados de depósito</label>{message&&<p className="text-sm text-amber-300">{message}</p>}<button className="primary w-full" disabled={busy||!userId}>{busy?'Salvando…':'Salvar dados de depósito'}</button></form></div></main>}`);
+
+          // User wallet: fetch only the authenticated user's assigned deposit instructions.
+          let dash=fs.readFileSync(path.join(root,'app/dashboard/page.tsx'),'utf8');
+          dash=dash.replace("const [wallet,setWallet]=useState<Wallet|null>(null),","const [depositDetails,setDepositDetails]=useState<any>(null),[wallet,setWallet]=useState<Wallet|null>(null),");
+          dash=dash.replace("setTx(j.transactions??[])}","setTx(j.transactions??[]);const dr=await fetch('/api/deposit-details');if(dr.ok){const dj=await dr.json();setDepositDetails(dj.depositDetails??null);if(dj.depositDetails?.network)setNetwork(dj.depositDetails.network)}}");
+          dash=dash.replace("{modal==='withdrawal'&&<label className=\"block text-sm text-zinc-400\">Destination address", "{modal==='deposit'&&<div className=\"rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 space-y-2\">{depositDetails?<><div className=\"text-sm font-semibold text-amber-300\">Seus dados de depósito · {depositDetails.network}</div><div className=\"break-all text-sm text-white\">{depositDetails.deposit_address}</div><button type=\"button\" className=\"secondary text-xs\" onClick={()=>navigator.clipboard.writeText(depositDetails.deposit_address)}>Copiar endereço</button>{depositDetails.payment_instructions&&<p className=\"text-xs text-zinc-300 whitespace-pre-wrap\">{depositDetails.payment_instructions}</p>}</>:<p className=\"text-xs text-amber-300\">O administrador ainda não configurou os dados de depósito para sua conta. Não envie fundos até que os dados sejam exibidos aqui.</p>}</div>}{modal==='withdrawal'&&<label className=\"block text-sm text-zinc-400\">Destination address");
+          dash=dash.replace("const body=modal==='deposit'?{amount,network}:{amount,network,destination};","const body=modal==='deposit'?{amount,network}:{amount,network,destination};if(modal==='deposit'&&!depositDetails){setBusy(false);setMsg('Os dados de depósito ainda não foram configurados para sua conta.');return}");
+          dash=dash.replace("const available=Number(wallet?.available??0)","const available=Number(wallet?.available??0)");
+          fs.writeFileSync(path.join(root,'app/dashboard/page.tsx'),dash);
+
+          // Deposit requests are accepted only against the current user's assigned network.
+          put('app/api/deposits/route.ts', String.raw`import Decimal from 'decimal.js';
+          import {NextRequest,NextResponse} from 'next/server';import {z} from 'zod';import {db} from '@/lib/db';import {requireUser} from '@/lib/auth';import {reference} from '@/lib/http';
+          const schema=z.object({amount:z.string().regex(/^\\d+(\\.\\d{1,8})?$/),network:z.enum(['TRC20','ERC20'])});
+          export async function POST(req:NextRequest){const c=await db.connect();try{const s=await requireUser();const b=schema.parse(await req.json());const amount=new Decimal(b.amount);if(!amount.isPositive()||amount.gt('9999999999999999999999'))throw new Error('Invalid amount');const cfg=await c.query('SELECT network FROM user_deposit_details WHERE user_id=$1 AND active=true',[s.id]);if(!cfg.rowCount)throw new Error('Deposit details are not configured for your account');if(cfg.rows[0].network!==b.network)throw new Error('Select the network assigned to your account');const w=await c.query("SELECT id FROM wallets WHERE user_id=$1 AND asset='USDT'",[s.id]);if(!w.rowCount)throw new Error('Wallet not found');const ref=reference('DEP');await c.query('BEGIN');const d=await c.query("INSERT INTO deposits(user_id,wallet_id,network,amount,reference,status) VALUES($1,$2,$3,$4,$5,'pending') RETURNING id",[s.id,w.rows[0].id,b.network,amount.toFixed(8),ref]);await c.query("INSERT INTO transactions(user_id,wallet_id,kind,amount,status,reference,note) VALUES($1,$2,'deposit',$3,'pending',$4,'Deposit request pending independent verification')",[s.id,w.rows[0].id,amount.toFixed(8),ref]);await c.query('COMMIT');return NextResponse.json({ok:true,reference:ref,status:'pending',message:'Request created. Balance changes only after verified confirmation.'})}catch(e){await c.query('ROLLBACK');return NextResponse.json({error:e instanceof Error?e.message:'Invalid deposit request'},{status:400})}finally{c.release()}}`);
+
+          // Balance controls: remove the arbitrary 10m cap and support setting an exact balance.
+          let adj=fs.readFileSync(path.join(root,'app/api/admin/adjustments/route.ts'),'utf8');
+          adj=adj.replace("z.enum(['credit','debit'])","z.enum(['credit','debit','set'])");
+          adj=adj.replace("if(!amount.isPositive()||amount.gt(10000000))throw new Error('Invalid amount');if(b.direction==='debit'&&before.lt(amount))throw new Error('Insufficient balance for debit');const delta=b.direction==='credit'?amount:amount.negated();const after=before.plus(delta);","if(!amount.isPositive()||amount.gt('9999999999999999999999'))throw new Error('Invalid amount');if(b.direction==='debit'&&before.lt(amount))throw new Error('Insufficient balance for debit');const delta=b.direction==='set'?amount.minus(before):(b.direction==='credit'?amount:amount.negated());const after=b.direction==='set'?amount:before.plus(delta);if(delta.isZero())throw new Error('The requested balance is already set');");
+          adj=adj.replace("b.direction==='credit'?'admin_credit':'admin_debit'","delta.isPositive()?'admin_credit':'admin_debit'");
+          adj=adj.replace("amount.toFixed(8),ref,b.reason","delta.abs().toFixed(8),ref,b.reason");
+          adj=adj.replace("`balance_${b.direction}`","`balance_${b.direction}`");
+          fs.writeFileSync(path.join(root,'app/api/admin/adjustments/route.ts'),adj);
+          let admin=fs.readFileSync(path.join(root,'app/admin/page.tsx'),'utf8');
+          admin=admin.replace('<option value="debit">Debit</option>','<option value="debit">Debit</option><option value="set">Set exact balance</option>');
+          admin=admin.replace('</header><div className="wrap py-8','<a href="/admin/deposit-details" className="text-xs text-amber-400 border border-amber-500/30 rounded-lg px-3 py-2">Deposit details per user</a></header><div className="wrap py-8');
+          fs.writeFileSync(path.join(root,'app/admin/page.tsx'),admin);
+          let css=fs.readFileSync(path.join(root,'app/globals.css'),'utf8');
+          css=css.replace('.wallet-wrap{width:min(100% - 44px,620px);margin:0 auto}', '.wallet-wrap{width:min(100% - 32px,430px);margin:0 auto}');
+          fs.writeFileSync(path.join(root,'app/globals.css'),css);
+          console.log('Applied mobile-width wallet, per-user deposit details and exact-balance admin controls.');
+          PATCH
+          cat /tmp/extra.cjs >> /tmp/apply-updates.cjs
+          gzip -n -9 -c /tmp/apply-updates.cjs | base64 -w0 > apply-updates.cjs.gz.b64
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apply-updates.cjs.gz.b64
+          git commit -m "Add per-user deposit details and flexible admin balance controls"
+          git push

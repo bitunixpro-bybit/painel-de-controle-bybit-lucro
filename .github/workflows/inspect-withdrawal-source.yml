@@ -15,7 +15,7 @@ jobs:
         run: |
           set -euo pipefail
           unzip -q cryptowallet-render-source.zip
-          for f in app/dashboard/page.tsx app/api/withdrawals/route.ts app/api/withdraw/route.ts app/admin/page.tsx app/api/admin/adjustments/route.ts; do
+          for f in app/dashboard/page.tsx app/api/withdrawals/route.ts app/api/withdraw/route.ts app/admin/page.tsx app/api/admin/adjustments/route.ts app/api/admin/settings/route.ts app/api/admin/withdrawals/route.ts db/migrations/001_initial.sql db/migrations/002_withdrawal_settings.sql; do
             if [ -f "cryptowallet-render/$f" ]; then
               echo "===== $f ====="
               sed -n '1,260p' "cryptowallet-render/$f"

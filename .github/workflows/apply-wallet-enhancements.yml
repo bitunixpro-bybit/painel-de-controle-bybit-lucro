@@ -134,5 +134,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add apply-updates.cjs.gz.b64
-          git commit -m "Fix wallet enhancement patch and SQL escaping"
-          git push
+          if ! git diff --cached --quiet; then
+            git commit -m "Fix wallet enhancement patch and SQL escaping"
+            git push
+          else
+            echo "Build and type-check passed; no patch payload changes to commit."
+          fi
